@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>KUKA Fleet - Dynamic SCADA</title>
+    <link rel="stylesheet" href="/styles/style.css">
+</head>
+<body>
+    <div class="top-bar">
+        <div class="header">
+            <h1>KUKA FLEET - DYNAMIC SCADA</h1>
+            <div class="sub">Quản lý linh hoạt: Nút nhấn (1-50) | Đèn báo (51-100)</div>
+        </div>
+        <button class="add-new-btn" onclick="openModal()">+ THÊM TRẠM MỚI</button>
+    </div>
+
+    <!-- GIAO DIỆN KHI CHƯA CÓ TRẠM NÀO -->
+    <div id="empty-state" class="empty-state" style="display: none;">
+        <div class="icon">⚙️</div>
+        <h3>Hệ thống chưa có trạm nào</h3>
+        <p>Vui lòng nhấn nút "Thêm Trạm Mới" ở góc trên bên phải để bắt đầu thiết lập bản đồ Modbus.</p>
+    </div>
+
+    <!-- CONTAINER CHỨA CÁC TRẠM -->
+    <div id="stations-container" class="stations-grid"></div>
+
+    <!-- HỘP THOẠI (MODAL) TẠO/SỬA TRẠM -->
+    <div id="config-modal" class="modal">
+        <div class="modal-content">
+            <h2 id="modal-title">TẠO TRẠM MỚI</h2>
+            <div class="input-group">
+                <label>Tên Trạm hiển thị:</label>
+                <input type="text" id="inp-name" placeholder="VD: Băng tải 1" autocomplete="off">
+            </div>
+            <div class="input-group">
+                <label>Địa chỉ Nút nhấn (1 - 50):</label>
+                <input type="number" id="inp-btn" placeholder="1-50" min="1" max="50">
+            </div>
+            <div class="input-group">
+                <label>Địa chỉ Đèn báo (51 - 100):</label>
+                <input type="number" id="inp-lamp" placeholder="51-100" min="51" max="100">
+            </div>
+            <div class="modal-actions">
+                <button class="cancel-btn" onclick="closeModal()">HỦY</button>
+                <button class="save-btn" onclick="saveStation()">LƯU LẠI</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/scripts/script.js"></script>
+</body>
+</html>
