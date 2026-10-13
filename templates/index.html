@@ -49,6 +49,7 @@
                     <option value="pause">Lệnh PAUSE Robot</option>
                     <option value="recover">Lệnh RECOVER Robot</option>
                     <option value="start">Lệnh START (Chạy Workflow)</option>
+                    <option value="cancel">Lệnh CANCEL (Hủy nhiệm vụ)</option>
                 </select>
             </div>
 
@@ -89,23 +90,23 @@
         function toggleInputs() {
             const type = document.getElementById('inp-type').value;
             const wfGroup = document.getElementById('group-wf');
-            const nodesGroup = document.getElementById('group-nodes'); // Lấy element mới
+            const nodesGroup = document.getElementById('group-nodes');
             const ipGroup = document.getElementById('group-ip');
             
             if (type === 'start') {
                 wfGroup.style.display = 'flex';
-                nodesGroup.style.display = 'flex'; // Hiện ô nhập điểm dừng
+                nodesGroup.style.display = 'flex';
                 ipGroup.style.display = 'none';
-            } else if (type === 'pause' || type === 'recover') {
+            } else if (type === 'pause' || type === 'recover' || type === 'cancel') { 
                 wfGroup.style.display = 'none';
-                nodesGroup.style.display = 'none'; // Tắt ô nhập điểm dừng
-                ipGroup.style.display = 'flex';
+                nodesGroup.style.display = 'none';
+                ipGroup.style.display = 'flex'; 
             } else { 
                 wfGroup.style.display = 'none';
-                nodesGroup.style.display = 'none'; // Tắt ô nhập điểm dừng
+                nodesGroup.style.display = 'none';
                 ipGroup.style.display = 'none';
             }
-        }
+        }   
     </script>
 </body>
 </html>
