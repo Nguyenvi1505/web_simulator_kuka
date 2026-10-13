@@ -7,6 +7,7 @@ import uvicorn
 import asyncio
 import logging
 import datetime
+import time
 import requests
 from contextlib import asynccontextmanager
 from fastapi.responses import FileResponse
@@ -97,7 +98,7 @@ logging.getLogger("uvicorn.error").addHandler(file_handler)
 # 2. QUẢN LÝ CẤU HÌNH JSON (CÓ BẢO MẬT)
 # ==========================================
 CONFIG_FILE = "config.json"
-ADMIN_PASS = "123456" # Mật khẩu quản trị Thêm/Sửa/Xóa
+ADMIN_PASS = "123456" 
 
 def load_config():
     if os.path.exists(CONFIG_FILE):
@@ -116,9 +117,11 @@ KUKA_BASE_URL = "http://192.168.221.250:5000/interfaces/api/amr"
 KUKA_TOKEN = "36b8ac34198ea45463f77f469fd9fe5d27d310ff66b84635df13dd9a1b444117"
 KUKA_HEADERS = {"Content-Type": "application/json", "Authorization": KUKA_TOKEN}
 
-robot_status_flags = {} # Cờ đánh dấu trạng thái (Chỉ = True khi xe Executing)
-robot_info_cache = {}   # Bộ đệm để bắn dữ liệu Pin/Trạng thái lên Web
+robot_status_flags = {} 
+robot_info_cache = {}   
 robot_paused_state = {}
+robot_mission_cache = {} # Lưu missionCode khi Start
+cancel_lamp_hold_until = {}
 
 def get_robot_info(robot_id):
     try:
@@ -130,7 +133,7 @@ def get_robot_info(robot_id):
                 return {
                     "status": data[0].get("status"),
                     "occupyStatus": data[0].get("occupyStatus", 0),
-                    "nodeCode": data[0].get("nodeCode", ""), # <--- Lấy thêm mã nodeCode hiện tại của xe
+                    "nodeCode": data[0].get("nodeCode", ""), 
                     "battery": data[0].get("batteryLevel", 0.0)
                 }
     except Exception as e:
@@ -150,7 +153,6 @@ def control_kuka_robot(action, robot_id):
         return False, str(e)
 
 def dispatch_workflow_mission(template_code, robot_id=None):
-    """Kích hoạt Workflow dựa trên code bạn cung cấp"""
     url = f"{KUKA_BASE_URL}/submitMission"
     req_id = str(uuid.uuid4()).replace("-", "")[:32]
     mis_code = f"MIS_{str(uuid.uuid4()).replace('-', '')[:10]}"
@@ -170,19 +172,38 @@ def dispatch_workflow_mission(template_code, robot_id=None):
         res = requests.post(url, headers=KUKA_HEADERS, json=payload, timeout=5.0)
         if res.status_code == 200:
             data = res.json()
+            if data.get("success"): return True, "OK", mis_code
+            return False, data.get("message", "Unknown Error"), None
+        return False, f"HTTP {res.status_code}", None
+    except Exception as e:
+        return False, str(e), None
+
+def cancel_workflow_mission(mission_code):
+    url = f"{KUKA_BASE_URL}/missionCancel"
+    req_id = str(uuid.uuid4()).replace("-", "")[:32]
+    
+    payload = {
+        "requestId": req_id,
+        "missionCode": mission_code,
+        "cancelMode": "FORCE"
+    }
+    
+    try:
+        res = requests.post(url, headers=KUKA_HEADERS, json=payload, timeout=5.0)
+        if res.status_code == 200:
+            data = res.json()
             if data.get("success"): return True, "OK"
             return False, data.get("message", "Unknown Error")
         return False, f"HTTP {res.status_code}"
     except Exception as e:
         return False, str(e)
-    
+
 async def kuka_master_loop():
-    """Luồng chạy ngầm để liên tục cập nhật trạng thái Robot & Đèn"""
     app_logger.info("=== KUKA MASTER LOOP ĐÃ KHỞI ĐỘNG ===")
     while True:
         try:
             cfg = load_config()
-            robot_ids = set([st["group"] for st in cfg if st.get("type") in ["pause", "recover", "start"] and st.get("group")])
+            robot_ids = set([st["group"] for st in cfg if st.get("type") in ["pause", "recover", "start", "cancel"] and st.get("group")])
             
             for rid in robot_ids:
                 info = await asyncio.to_thread(get_robot_info, rid)
@@ -191,17 +212,15 @@ async def kuka_master_loop():
                     occupy = info["occupyStatus"]
                     current_node = info.get("nodeCode", "")
                     
-                    # Nếu xe đã chạy xong nhiệm vụ (Rảnh hoàn toàn), tự động xóa cờ Tạm dừng (nếu bị kẹt)
                     if status == 3 and occupy == 0:
                         robot_paused_state[rid] = False
+                        robot_mission_cache.pop(rid, None) # Xóa missionCode khi xe rảnh
                         
-                    # Chèn cờ Tạm dừng ảo vào dữ liệu gửi lên Web
                     info["is_paused"] = robot_paused_state.get(rid, False)
                     robot_info_cache[rid] = info 
                     
                     current_flag = robot_status_flags.get(rid, False)
                     
-                    # LOGIC BẢO VỆ NÚT PAUSE/RECOVER (GIỮ NGUYÊN)
                     if status == 4:
                         if not current_flag:
                             app_logger.info(f"Robot {rid} is EXECUTING (Status 4). Enabling Pause/Recover.")
@@ -211,7 +230,7 @@ async def kuka_master_loop():
                             app_logger.info(f"Robot {rid} status changed to {status}. Disabling Pause/Recover.")
                             robot_status_flags[rid] = False
                             
-                    # LOGIC ĐÈN NÚT START (GIỮ NGUYÊN)
+                    # LOGIC ĐÈN NÚT START
                     start_stations = [s for s in cfg if s.get("group") == rid and s.get("type") == "start"]
                     for st in start_stations:
                         allowed_nodes_str = st.get("nodes", "")
@@ -222,6 +241,20 @@ async def kuka_master_loop():
                             set_lamp_state(st, 0)
                         else:
                             set_lamp_state(st, 1)
+                            
+                    # LOGIC ĐÈN NÚT CANCEL (Sáng = Được hủy, Tắt = Không có gì để hủy)
+                    cancel_stations = [s for s in cfg if s.get("group") == rid and s.get("type") == "cancel"]
+                    for st in cancel_stations:
+                        # Ưu tiên 1: Đang trong 3 giây báo thành công -> Giữ đèn Sáng
+                        if time.time() < cancel_lamp_hold_until.get(rid, 0):
+                            set_lamp_state(st, 1)
+                        # Ưu tiên 2: Xét theo trạng thái xe
+                        else:
+                            has_mission = robot_mission_cache.get(rid) is not None
+                            if (status == 4 or occupy == 1) and has_mission:
+                                set_lamp_state(st, 1) # SÁNG = Xe đang bận, cho phép hủy
+                            else:
+                                set_lamp_state(st, 0) # TẮT = Đã hủy xong hoặc đang rảnh
 
             if robot_info_cache:
                 msg = {"kuka_data": robot_info_cache}
@@ -240,17 +273,12 @@ async def kuka_master_loop():
 physical_clients = {}
 
 def get_physical_client(ip):
-    """Giữ kết nối Modbus tới các hộp nút nhấn vật lý"""
     if ip not in physical_clients:
         physical_clients[ip] = ModbusClient(host=ip, port=502, auto_open=True, timeout=0.5)
     return physical_clients[ip]
 
 def set_lamp_state(station, state):
-    """Bật/Tắt đèn đồng bộ trên cả Web Server và Thiết bị phần cứng"""
-    # Đèn trên Web
     context[0].setValues(3, station["lamp_addr"], [state])
-    
-    # Đèn phần cứng (nếu có khai báo IP)
     ip = station.get("ip")
     if ip:
         try:
@@ -260,7 +288,6 @@ def set_lamp_state(station, state):
             app_logger.error(f"Lỗi điều khiển đèn vật lý {ip}: {e}")
 
 async def physical_button_scanner():
-    """Luồng quét liên tục các Nút nhấn vật lý (300ms/lần)"""
     app_logger.info("=== PHYSICAL BUTTON SCANNER ĐÃ KHỞI ĐỘNG ===")
     while True:
         try:
@@ -269,14 +296,9 @@ async def physical_button_scanner():
                 ip = st.get("ip")
                 btn_addr = st.get("btn_addr")
                 btn_type = st.get("type", "")
-                robot_id = st.get("group", "")
                 
-                if ip and btn_addr and btn_type in ["pause", "recover", "start"]:
-                    
-                    # LOGIC CŨ: Nút Pause/Recover chỉ được quét khi Cờ mở (Status = 4)
-                    if btn_type in ["pause", "recover"] and not robot_status_flags.get(robot_id, False):
-                        continue
-                        
+                # Quét mọi nút hợp lệ, nhường quyền chặn/mở cho /api/write quyết định
+                if ip and btn_addr and btn_type in ["pause", "recover", "start", "cancel"]:
                     client = get_physical_client(ip)
                     regs = await asyncio.to_thread(client.read_holding_registers, btn_addr, 1)
                     
@@ -316,7 +338,6 @@ def get_resource_path(relative_path):
     return os.path.join(os.path.abspath("."), relative_path)
 
 async def monitor_modbus_state():
-    """Gửi thay đổi bộ nhớ Modbus (cho các nút Khác) lên WebSocket"""
     last_regs = None
     while True:
         try:
@@ -333,12 +354,10 @@ async def monitor_modbus_state():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Khởi chạy 4 tiến trình ngầm cực mạnh
     modbus_task = asyncio.create_task(StartAsyncTcpServer(context=context, address=("0.0.0.0", 502)))
     asyncio.create_task(monitor_modbus_state())
     asyncio.create_task(kuka_master_loop()) 
     asyncio.create_task(physical_button_scanner())
-    
     yield
     modbus_task.cancel()
 
@@ -404,21 +423,21 @@ async def write_register(payload: dict):
                 cfg = load_config()
                 station = next((s for s in cfg if s.get("btn_addr") == addr), None)
                 
-                if station and station.get("type") in ["pause", "recover", "start"]:
+                if station and station.get("type") in ["pause", "recover", "start", "cancel"]:
                     robot_id = station.get("group", "")
                     btn_type = station["type"]
                     
-                    # --- 1. LOGIC RIÊNG CHO NÚT START ---
-                    if btn_type == "start":
-                        cached_info = robot_info_cache.get(robot_id)
-                        if not cached_info:
-                            app_logger.warning(f"TỪ CHỐI LỆNH: Mất kết nối tới Robot {robot_id}")
-                            return {"status": "error"}
-                            
-                        status = cached_info.get("status")
-                        occupy = cached_info.get("occupyStatus")
-                        current_node = cached_info.get("nodeCode", "")
+                    cached_info = robot_info_cache.get(robot_id)
+                    if not cached_info:
+                        app_logger.warning(f"TỪ CHỐI LỆNH: Mất kết nối tới Robot {robot_id}")
+                        return {"status": "error"}
                         
+                    status = cached_info.get("status")
+                    occupy = cached_info.get("occupyStatus")
+                    current_node = cached_info.get("nodeCode", "")
+                    
+                    # --- 1. LOGIC NÚT START ---
+                    if btn_type == "start":
                         allowed_nodes_str = station.get("nodes", "")
                         allowed_nodes = [n.strip() for n in allowed_nodes_str.split(",") if n.strip()]
                         is_at_valid_node = True if not allowed_nodes else any(node in current_node for node in allowed_nodes)
@@ -426,28 +445,57 @@ async def write_register(payload: dict):
                         if status == 3 and occupy == 0 and is_at_valid_node:
                             wf_code = station.get("wf")
                             app_logger.info(f"ACTION TRIGGERED: START Workflow '{wf_code}' cho Robot {robot_id}")
-                            is_success, msg = await asyncio.to_thread(dispatch_workflow_mission, wf_code, robot_id)
+                            is_success, msg, mis_code = await asyncio.to_thread(dispatch_workflow_mission, wf_code, robot_id)
                             
                             if is_success:
                                 app_logger.info(f"SUCCESS: Đã Start Robot {robot_id}.")
+                                robot_mission_cache[robot_id] = mis_code # Lưu missionCode
                                 cached_info["status"] = 4 
                                 cached_info["occupyStatus"] = 1
-                                set_lamp_state(station, 1) # Bật đèn Start (Khóa lại)
-                                robot_status_flags[robot_id] = True # Mở khóa cho Pause/Recover
+                                set_lamp_state(station, 1)
+                                robot_status_flags[robot_id] = True 
                             else:
                                 app_logger.warning(f"FAILED: Lỗi Start Robot {robot_id}. Lý do: {msg}")
                         else:
                             app_logger.warning(f"TỪ CHỐI LỆNH START: Robot {robot_id} không sẵn sàng hoặc sai vị trí.")
-                    
-                    # --- 2. LOGIC CŨ CHO NÚT PAUSE / RECOVER ---
+                            
+                    # --- 2. LOGIC NÚT CANCEL ---
+                    elif btn_type == "cancel":
+                        mis_code = robot_mission_cache.get(robot_id)
+                        if mis_code and (status == 4 or occupy == 1):
+                            app_logger.info(f"ACTION TRIGGERED: CANCEL Mission '{mis_code}' cho Robot {robot_id}")
+                            is_success, msg = await asyncio.to_thread(cancel_workflow_mission, mis_code)
+                            
+                            if is_success:
+                                app_logger.info(f"SUCCESS: Đã HỦY nhiệm vụ của Robot {robot_id}.")
+                                # 1. Xóa Mission ngay lập tức
+                                robot_mission_cache.pop(robot_id, None) 
+                                
+                                # 2. Bắt đầu đếm 3 giây giữ đèn sáng
+                                cancel_lamp_hold_until[robot_id] = time.time() + 3.0
+                                set_lamp_state(station, 1) 
+                                
+                                # 3. Đưa xe về trạng thái Rảnh ngay lập tức để nút Start sáng lại
+                                cached_info["status"] = 3
+                                cached_info["occupyStatus"] = 0
+                                robot_status_flags[robot_id] = False
+                                
+                                if robot_info_cache:
+                                    ws_msg = {"kuka_data": robot_info_cache}
+                                    for ws in list(active_websockets):
+                                        try: await ws.send_json(ws_msg)
+                                        except Exception: active_websockets.discard(ws)
+                            else:
+                                app_logger.warning(f"FAILED: Lỗi Cancel Robot {robot_id}. Lý do: {msg}")
+                        else:
+                            app_logger.warning(f"TỪ CHỐI LỆNH HỦY: Robot {robot_id} không bận hoặc không có Mission được lưu.")
+                            
+                    # --- 3. LOGIC NÚT PAUSE / RECOVER ---
                     else:
                         action = "PAUSE" if btn_type == "pause" else "RECOVER"
-                        
-                        # Chỉ cho phép bấm khi cờ bảo vệ mở (xe đang Status 4)
                         if robot_status_flags.get(robot_id, False):
                             app_logger.info(f"ACTION TRIGGERED: {action} cho Robot {robot_id}")
                             
-                            # Nhấn Recover thì bật đèn Recover trước để báo hiệu
                             if action == "RECOVER":
                                 set_lamp_state(station, 1)
                                 
@@ -457,11 +505,8 @@ async def write_register(payload: dict):
                                 if action == "PAUSE":
                                     app_logger.info(f"SUCCESS: Đã Pause Robot {robot_id}.")
                                     set_lamp_state(station, 1)
-                                    
-                                    # THÊM MỚI: Bật cờ Tạm dừng
                                     robot_paused_state[robot_id] = True 
-                                    if cached_info is not None:
-                                        cached_info["is_paused"] = True
+                                    cached_info["is_paused"] = True
                                         
                                 elif action == "RECOVER":
                                     app_logger.info(f"SUCCESS: Đã Recover Robot {robot_id}.")
@@ -470,12 +515,9 @@ async def write_register(payload: dict):
                                     pause_st = next((s for s in cfg if s.get("group") == robot_id and s.get("type") == "pause"), None)
                                     if pause_st: set_lamp_state(pause_st, 0)
                                     
-                                    # THÊM MỚI: Tắt cờ Tạm dừng
                                     robot_paused_state[robot_id] = False 
-                                    if cached_info is not None:
-                                        cached_info["is_paused"] = False
+                                    cached_info["is_paused"] = False
                                         
-                                # ĐỒNG BỘ GIAO DIỆN WEB TỨC THÌ (Bắn thẳng data đã ép cờ is_paused)
                                 if robot_info_cache:
                                     ws_msg = {"kuka_data": robot_info_cache}
                                     for ws in list(active_websockets):
