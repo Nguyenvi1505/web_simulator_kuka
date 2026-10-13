@@ -14,7 +14,7 @@ body { background: #0f1115; color: #fff; min-height: 100vh; padding: 30px; }
 .empty-state h3 { color: #e5e7eb; margin-bottom: 10px; font-size: 20px; }
 .empty-state p { font-size: 14px; line-height: 1.5; }
 
-/* Lưới hiển thị các Trạm */
+/* Lưới hiển thị các NÚT */
 .stations-grid { display: flex; flex-wrap: wrap; gap: 20px; justify-content: flex-start; max-width: 1200px; margin: 0 auto; }
 .station-card { background: #1e2430; border-radius: 16px; padding: 25px 20px; width: calc(25% - 15px); min-width: 230px; text-align: center; border: 1px solid #374151; position: relative; box-shadow: 0 10px 25px rgba(0,0,0,0.5); }
 .station-header-title { font-size: 16px; font-weight: bold; color: #e5e7eb; margin-bottom: 15px; border-bottom: 1px solid #374151; padding-bottom: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-right: 50px;}
@@ -61,3 +61,56 @@ input:checked + .slider:before { transform: translateX(16px); }
 .modal-actions button { flex: 1; padding: 12px; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; transition: 0.2s; }
 .cancel-btn { background: #374151; color: white; } .cancel-btn:hover { background: #4b5563; }
 .save-btn { background: #10b981; color: white; } .save-btn:hover { background: #059669; }
+
+/* Giao diện khung nhóm Robot */
+.robot-group {
+    width: 100%;
+    margin-bottom: 30px;
+    background: rgba(30, 41, 59, 0.4); /* Nền xám đen hơi trong suốt */
+    padding: 20px;
+    border-radius: 12px;
+    border: 1px solid #334155;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+}
+
+.group-title {
+    color: #38bdf8; /* Xanh dương sáng */
+    font-size: 18px;
+    font-weight: 600;
+    margin-bottom: 20px;
+    padding-bottom: 10px;
+    border-bottom: 1px dashed #475569;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+.group-items-container {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 20px;
+}
+
+/* GIAO DIỆN HIỂN THỊ STATUS VÀ PIN ROBOT */
+.group-header-wrapper {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+    border-bottom: 1px dashed #475569;
+    padding-bottom: 10px;
+}
+.group-title { margin-bottom: 0; border-bottom: none; padding-bottom: 0; }
+.robot-badges { display: flex; gap: 10px; align-items: center; }
+.r-badge { 
+    font-size: 13px; 
+    font-weight: bold; 
+    padding: 6px 12px; 
+    border-radius: 6px; 
+    color: #fff; 
+    background: #374151; 
+    box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+}
+.batt-badge { 
+    background: #1f2937; 
+    border: 1px solid #374151; 
+}
