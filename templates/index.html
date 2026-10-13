@@ -12,27 +12,63 @@
             <h1>KUKA FLEET - DYNAMIC SCADA</h1>
             <div class="sub">Quản lý linh hoạt: Nút nhấn (1-50) | Đèn báo (51-100)</div>
         </div>
-        <button class="add-new-btn" onclick="openModal()">+ THÊM TRẠM MỚI</button>
+        <button class="add-new-btn" onclick="openModal()">+ THÊM NÚT MỚI</button>
     </div>
 
-    <!-- GIAO DIỆN KHI CHƯA CÓ TRẠM NÀO -->
+    <!-- GIAO DIỆN KHI CHƯA CÓ NÚT NÀO -->
     <div id="empty-state" class="empty-state" style="display: none;">
         <div class="icon">⚙️</div>
-        <h3>Hệ thống chưa có trạm nào</h3>
-        <p>Vui lòng nhấn nút "Thêm Trạm Mới" ở góc trên bên phải để bắt đầu thiết lập bản đồ Modbus.</p>
+        <h3>Hệ thống chưa có nút nào</h3>
+        <p>Vui lòng nhấn nút "Thêm Nút Mới" ở góc trên bên phải để bắt đầu thiết lập bản đồ Modbus.</p>
     </div>
 
-    <!-- CONTAINER CHỨA CÁC TRẠM -->
+    <!-- CONTAINER CHỨA CÁC NÚT -->
     <div id="stations-container" class="stations-grid"></div>
 
-    <!-- HỘP THOẠI (MODAL) TẠO/SỬA TRẠM -->
+    <!-- HỘP THOẠI (MODAL) TẠO/SỬA NÚT -->
     <div id="config-modal" class="modal">
         <div class="modal-content">
-            <h2 id="modal-title">TẠO TRẠM MỚI</h2>
+            <h2 id="modal-title">TẠO NÚT MỚI</h2>
+
+            <!-- THÊM Ô NHẬP NHÓM/ROBOT VÀO ĐÚNG CHỖ NÀY -->
             <div class="input-group">
-                <label>Tên Trạm hiển thị:</label>
+                <label>Nhóm / Robot (VD: Chung, Robot ID):</label>
+                <input type="text" id="inp-group" placeholder="Nhập tên Robot để gom nhóm..." value="Chung" autocomplete="off">
+            </div>
+
+            <!-- Các ô nhập cũ giữ nguyên -->
+            <div class="input-group">
+                <label>Tên Nút hiển thị:</label>
                 <input type="text" id="inp-name" placeholder="VD: Băng tải 1" autocomplete="off">
             </div>
+            <!-- CHỈNH SỬA: Thay đổi sự kiện onchange -->
+            <div class="input-group">
+                <label>Chức năng nút nhấn (KUKA API):</label>
+                <select id="inp-type" style="background: #13171f; border: 1px solid #4b5563; color: #fff; padding: 12px; border-radius: 6px; outline: none; font-size: 15px;" onchange="toggleInputs()">
+                    <option value="khac">Khác (Chỉ điều khiển Modbus)</option>
+                    <option value="pause">Lệnh PAUSE Robot</option>
+                    <option value="recover">Lệnh RECOVER Robot</option>
+                    <option value="start">Lệnh START (Chạy Workflow)</option>
+                </select>
+            </div>
+
+            <!-- CHỈNH SỬA: Thêm id="group-ip" và mặc định ẩn -->
+            <div class="input-group" id="group-ip" style="display: none;">
+                <label>IP Trạm vật lý (Dành cho Pause/Recover):</label>
+                <input type="text" id="inp-ip" placeholder="VD: 192.168.221.253" autocomplete="off">
+            </div>
+
+            <!-- Ô Nhập WF mặc định ẩn -->
+            <div class="input-group" id="group-wf" style="display: none;">
+                <label>Mã Workflow (Dành cho nút Start):</label>
+                <input type="text" id="inp-wf" placeholder="VD: W000000016" autocomplete="off">
+            </div>
+
+            <div class="input-group" id="group-nodes" style="display: none;">
+                <label>Các điểm dừng hợp lệ (Cách nhau dấu phẩy):</label>
+                <input type="text" id="inp-nodes" placeholder="VD: Point-1, Point-2" autocomplete="off">
+            </div>
+
             <div class="input-group">
                 <label>Địa chỉ Nút nhấn (1 - 50):</label>
                 <input type="number" id="inp-btn" placeholder="1-50" min="1" max="50">
@@ -49,5 +85,27 @@
     </div>
 
     <script src="/scripts/script.js"></script>
+    <script>
+        function toggleInputs() {
+            const type = document.getElementById('inp-type').value;
+            const wfGroup = document.getElementById('group-wf');
+            const nodesGroup = document.getElementById('group-nodes'); // Lấy element mới
+            const ipGroup = document.getElementById('group-ip');
+            
+            if (type === 'start') {
+                wfGroup.style.display = 'flex';
+                nodesGroup.style.display = 'flex'; // Hiện ô nhập điểm dừng
+                ipGroup.style.display = 'none';
+            } else if (type === 'pause' || type === 'recover') {
+                wfGroup.style.display = 'none';
+                nodesGroup.style.display = 'none'; // Tắt ô nhập điểm dừng
+                ipGroup.style.display = 'flex';
+            } else { 
+                wfGroup.style.display = 'none';
+                nodesGroup.style.display = 'none'; // Tắt ô nhập điểm dừng
+                ipGroup.style.display = 'none';
+            }
+        }
+    </script>
 </body>
 </html>
