@@ -278,38 +278,71 @@ def get_physical_client(ip):
     return physical_clients[ip]
 
 def set_lamp_state(station, state):
+    # 1. Đổi màu đèn ảo trên Web (luôn dùng lamp_addr của Web)
     context[0].setValues(3, station["lamp_addr"], [state])
+    
+    # 2. Đổi màu đèn vật lý ngoài xưởng (nếu có khai báo)
     ip = station.get("ip")
-    if ip:
+    phy_lamp = station.get("phy_lamp") # <-- Đọc địa chỉ đèn vật lý
+    
+    if ip and phy_lamp is not None:
         try:
             client = get_physical_client(ip)
-            client.write_single_register(station["lamp_addr"], state)
+            client.write_single_register(phy_lamp, state) # <-- Ghi vào thanh ghi vật lý
         except Exception as e:
             app_logger.error(f"Lỗi điều khiển đèn vật lý {ip}: {e}")
 
+
+async def scan_single_node(st):
+    ip = st.get("ip")
+    web_btn_addr = st.get("btn_addr")
+    btn_type = st.get("type", "")
+    
+    # Lấy địa chỉ nút vật lý được khai báo
+    phy_btn = st.get("phy_btn") 
+    
+    # CHỈ quét nếu nút này thuộc loại Pause/Recover và CÓ cấu hình nút vật lý
+    if not (ip and web_btn_addr and phy_btn is not None and btn_type in ["pause", "recover"]):
+        return
+
+    client = get_physical_client(ip)
+    try:
+        # 1. ĐỌC TỪ ĐỊA CHỈ PHẦN CỨNG VẬT LÝ
+        regs = await asyncio.to_thread(client.read_holding_registers, phy_btn, 1)
+        
+        if regs and regs[0] > 0:
+            app_logger.info(f"Phát hiện nhấn nút {btn_type.upper()} vật lý tại {ip} (Reg {phy_btn})")
+            
+            # Xóa trạng thái phần cứng vật lý về 0
+            await asyncio.to_thread(client.write_single_register, phy_btn, 0)
+            
+            # 2. ÁNH XẠ: Bắn tín hiệu sang ĐỊA CHỈ WEB ẢO để chạy logic hệ thống
+            url = "http://127.0.0.1:8000/api/write"
+            await asyncio.to_thread(requests.post, url, json={"address": web_btn_addr, "value": 1})
+            await asyncio.sleep(0.5)
+            await asyncio.to_thread(requests.post, url, json={"address": web_btn_addr, "value": 0})
+            
+    except Exception:
+        pass
+
 async def physical_button_scanner():
-    app_logger.info("=== PHYSICAL BUTTON SCANNER ĐÃ KHỞI ĐỘNG ===")
+    """Vòng lặp chính quản lý quét Modbus vật lý"""
+    app_logger.info("=== PHYSICAL BUTTON SCANNER ĐÃ KHỞI ĐỘNG (SONG SONG) ===")
     while True:
         try:
             cfg = load_config()
-            for st in cfg:
-                ip = st.get("ip")
-                btn_addr = st.get("btn_addr")
-                btn_type = st.get("type", "")
+            
+            # Gom tất cả các NÚT cần quét vào một danh sách công việc (tasks)
+            tasks = [scan_single_node(st) for st in cfg]
+            
+            if tasks:
+                # asyncio.gather sẽ chạy TẤT CẢ các tasks cùng MỘT LÚC
+                await asyncio.gather(*tasks)
                 
-                # Quét mọi nút hợp lệ, nhường quyền chặn/mở cho /api/write quyết định
-                if ip and btn_addr and btn_type in ["pause", "recover", "start", "cancel"]:
-                    client = get_physical_client(ip)
-                    regs = await asyncio.to_thread(client.read_holding_registers, btn_addr, 1)
-                    
-                    if regs and regs[0] > 0:
-                        app_logger.info(f"Phát hiện nhấn nút {btn_type.upper()} vật lý tại {ip}")
-                        await asyncio.to_thread(client.write_single_register, btn_addr, 0)
-                        
-                        url = "http://127.0.0.1:8000/api/write"
-                        await asyncio.to_thread(requests.post, url, json={"address": btn_addr, "value": 1})
-        except Exception:
-            pass
+        except Exception as e:
+            app_logger.error(f"Lỗi trong vòng lặp scanner: {e}")
+            
+        # Đợi 300ms rồi quét đồng loạt vòng tiếp theo
         await asyncio.sleep(0.3)
 
 # ==========================================
@@ -419,6 +452,16 @@ async def write_register(payload: dict):
             context[0].setValues(3, addr, [val]) 
             app_logger.info(f"Ra lệnh GHI -> Địa chỉ {addr}: Giá trị {val}")
 
+            if 51 <= addr <= 100: # Nếu địa chỉ này thuộc vùng ĐÈN
+                cfg = load_config()
+                st_lamp = next((s for s in cfg if s.get("lamp_addr") == addr), None)
+                if st_lamp and st_lamp.get("ip") and st_lamp.get("phy_lamp") is not None:
+                    try:
+                        client = get_physical_client(st_lamp["ip"])
+                        client.write_single_register(st_lamp["phy_lamp"], val)
+                    except Exception: 
+                        pass
+                    
             if val > 0:
                 cfg = load_config()
                 station = next((s for s in cfg if s.get("btn_addr") == addr), None)
