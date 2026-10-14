@@ -33,7 +33,7 @@ function openModal(addr = null) {
         editModeAddr = addr;
         modalTitle.textContent = "SỬA THÔNG TIN NÚT";
         const st = stations.find(s => s.btn_addr === addr);
-        document.getElementById('inp-group').value = st.group || "Chung"; // Thêm dòng này
+        document.getElementById('inp-group').value = st.group || "Chung"; 
         document.getElementById('inp-type').value = st.type || "khac";
         document.getElementById('inp-ip').value = st.ip || "";
         document.getElementById('inp-phy-btn').value = st.phy_btn ?? "";
@@ -157,35 +157,131 @@ function writeRegister(address, value) {
     });
 }
 
+// ==========================================
+// TÍNH NĂNG QUẢN LÝ THEO NHÓM (ROBOT ID)
+// ==========================================
+
+// 1. ĐỔI TÊN ROBOT ID CHO TOÀN BỘ NÚT
+async function editGroup(oldGroupName) {
+    const newGroupName = prompt(`Nhập ID Robot mới để thay thế cho [${oldGroupName}]:`, oldGroupName);
+    if (!newGroupName || newGroupName.trim() === "" || newGroupName === oldGroupName) return;
+
+    const pass = prompt(`Vui lòng nhập mật khẩu quản trị để đổi tên toàn bộ nút của [${oldGroupName}]:`);
+    if (pass === null) return;
+
+    const stationsInGroup = stations.filter(s => s.group === oldGroupName);
+    
+    const updatePromises = stationsInGroup.map(st => {
+        const payload = { ...st, group: newGroupName.trim(), password: pass };
+        return fetch(`/api/config/${st.btn_addr}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        }).then(res => res.json());
+    });
+
+    const results = await Promise.all(updatePromises);
+    
+    const errorRes = results.find(r => r.status === "error");
+    if (errorRes) {
+        alert(errorRes.message);
+    }
+    
+    loadConfig(); 
+}
+
+// 2. XÓA TOÀN BỘ ROBOT VÀ CÁC NÚT BÊN TRONG
+async function deleteGroup(groupName) {
+    if(!confirm(`⚠️ BẠN CÓ CHẮC CHẮN MUỐN XÓA TOÀN BỘ ROBOT [${groupName}]?\nTất cả nút Start, Pause, Cancel của xe này sẽ bị xóa. Dữ liệu không thể khôi phục.`)) {
+        return;
+    }
+
+    const pass = prompt(`Vui lòng nhập mật khẩu quản trị để XÓA Robot [${groupName}]:`);
+    if (pass === null) return;
+
+    const stationsInGroup = stations.filter(s => s.group === groupName);
+    
+    const deletePromises = stationsInGroup.map(st => {
+        return fetch(`/api/config/${st.btn_addr}?password=${encodeURIComponent(pass)}`, { 
+            method: 'DELETE' 
+        }).then(res => res.json());
+    });
+
+    const results = await Promise.all(deletePromises);
+    
+    const errorRes = results.find(r => r.status === "error");
+    if (errorRes) {
+        alert(errorRes.message);
+    }
+    
+    loadConfig();
+}
+
+// ==========================================
 // VẼ GIAO DIỆN
+// ==========================================
+
+// HÀM MỞ POPUP
+function openMiniWindow(robotId) {
+    const url = window.location.origin + window.location.pathname + '?mini=' + encodeURIComponent(robotId);
+    const windowFeatures = "width=750,height=280,menubar=no,toolbar=no,location=no,status=no,resizable=yes";
+    
+    // Mở popup hoàn toàn mới
+    window.open(url, "_blank", windowFeatures);
+}
+
 function renderStations() {
     let htmlContent = '';
     
-    // 1. Phân loại các NÚT vào từng nhóm
+    const urlParams = new URLSearchParams(window.location.search);
+    const miniGroup = urlParams.get('mini');
+
+    if (miniGroup) {
+        document.body.classList.add('mini-mode');
+        document.title = "ĐK: " + miniGroup;
+    }
+
     const groupedStations = {};
     stations.forEach(st => {
         const groupName = st.group || "Khu vực chung"; 
-        if (!groupedStations[groupName]) {
-            groupedStations[groupName] = [];
-        }
+        if (!groupedStations[groupName]) groupedStations[groupName] = [];
         groupedStations[groupName].push(st);
     });
 
-    // 2. Render HTML cho từng Nhóm
-    for (const [group, items] of Object.entries(groupedStations)) {
+    const groupsToRender = miniGroup ? { [miniGroup]: groupedStations[miniGroup] || [] } : groupedStations;
+
+    for (const [group, items] of Object.entries(groupsToRender)) {
+        if (items.length === 0) continue;
+
+        // Html chứa các nút thao tác nhóm
+        const groupActionsHtml = miniGroup ? '' : `
+            <div style="display: flex; gap: 8px; align-items: center;">
+                <button class="pop-out-btn" onclick="openMiniWindow('${group}')" style="margin:left: 0;">↗ MỞ POPUP</button>
+                <button class="icon-btn edit-btn" style="width: 27px; height: 27px;" title="Đổi tên Robot ID cho toàn bộ nút" onclick="editGroup('${group}')">✎</button>
+                <button class="icon-btn del-btn" style="width: 27px; height: 27px;" title="Xóa toàn bộ Robot này" onclick="deleteGroup('${group}')">✖</button>
+            </div>
+        `;
+
         htmlContent += `
-        <div class="robot-group">
-            <div class="group-header-wrapper">
-                <h2 class="group-title">${group}</h2>
-                <div class="robot-badges">
-                    <span id="badge-status-${group}" class="r-badge status-badge" style="display:none;"></span>
-                    <span id="badge-batt-${group}" class="r-badge batt-badge" style="display:none;"></span>
+        <div class="robot-group" style="${miniGroup ? 'margin:0; border:none; background:transparent; padding:0; box-shadow:none;' : ''}">
+            <div class="group-header-wrapper" style="${miniGroup ? 'justify-content: center; border-bottom: none; margin-bottom: 10px;' : ''}">
+                
+                <!-- BÊN TRÁI: Chỉ để hiển thị Tên Robot -->
+                <h2 class="group-title" style="${miniGroup ? 'font-size: 20px; color: #fff;' : ''}">${group}</h2>
+                
+                <!-- BÊN PHẢI: Chứa cụm 3 nút thao tác + Badges Trạng thái KUKA -->
+                <div style="display: flex; align-items: center; gap: 20px;">
+                    ${groupActionsHtml}
+                    <div class="robot-badges">
+                        <span id="badge-status-${group}" class="r-badge status-badge" style="display:none;"></span>
+                        <span id="badge-batt-${group}" class="r-badge batt-badge" style="display:none;"></span>
+                    </div>
                 </div>
+
             </div>
             <div class="group-items-container">
         `;
         
-        // Render các nút bấm con bên trong nhóm này
         items.forEach(st => {
             htmlContent += `
             <div class="station-card" id="card-${st.btn_addr}">
@@ -218,9 +314,9 @@ function renderStations() {
     
     container.innerHTML = htmlContent;
 
-    // 3. Gắn sự kiện click nguyên bản
     stations.forEach(st => {
         const btn = document.getElementById(`btn-${st.btn_addr}`);
+        if(!btn) return; 
         const toggle = document.getElementById(`toggle-${st.lamp_addr}`);
 
         const handleDown = (e) => {
@@ -266,9 +362,11 @@ function renderStations() {
         btn.addEventListener('touchend', handleUp);
         btn.addEventListener('mouseleave', handleUp);
 
-        toggle.addEventListener('change', (e) => {
-            writeRegister(st.lamp_addr, e.target.checked ? 1 : 0);
-        });
+        if(toggle) {
+            toggle.addEventListener('change', (e) => {
+                writeRegister(st.lamp_addr, e.target.checked ? 1 : 0);
+            });
+        }
     });
 }
 
@@ -289,23 +387,30 @@ function initWebSocket() {
                 const lampOn = lampVal > 0;
 
                 // Cập nhật giá trị hiển thị dạng text
-                document.getElementById(`regVal-${st.btn_addr}`).textContent = btnVal;
+                const regValEl = document.getElementById(`regVal-${st.btn_addr}`);
+                if(regValEl) regValEl.textContent = btnVal;
                 
                 const btnEl = document.getElementById(`btn-${st.btn_addr}`);
                 const lampValEl = document.getElementById(`lampVal-${st.lamp_addr}`);
                 const toggleEl = document.getElementById(`toggle-${st.lamp_addr}`);
 
+                if(!btnEl) return; // Nếu nút không có trên DOM (do đang mở chế độ mini) thì bỏ qua
+
                 // Đổi class để thay đổi giao diện Nút/Đèn
                 if (lampOn) {
                     btnEl.className = 'illuminated-btn lamp-on';
-                    lampValEl.textContent = 'ON';
-                    lampValEl.style.color = '#34d399';
-                    toggleEl.checked = true;
+                    if(lampValEl) {
+                        lampValEl.textContent = 'ON';
+                        lampValEl.style.color = '#34d399';
+                    }
+                    if(toggleEl) toggleEl.checked = true;
                 } else {
                     btnEl.className = 'illuminated-btn lamp-off';
-                    lampValEl.textContent = 'OFF';
-                    lampValEl.style.color = '#047857';
-                    toggleEl.checked = false;
+                    if(lampValEl) {
+                        lampValEl.textContent = 'OFF';
+                        lampValEl.style.color = '#047857';
+                    }
+                    if(toggleEl) toggleEl.checked = false;
                 }
             });
         }
@@ -320,9 +425,8 @@ function initWebSocket() {
                     statusBadge.style.display = 'inline-block';
                     battBadge.style.display = 'inline-block';
                     
-                    // Logic dịch số status thành chữ và màu sắc chuẩn KUKA
                     let statusText = `Mã ${info.status}`;
-                    let statusColor = "#6b7280"; // Màu xám mặc định
+                    let statusColor = "#6b7280"; 
                     
                     switch (info.status) {
                         case 1: statusText = "Khởi hành"; statusColor = "#3b82f6"; break;
@@ -334,30 +438,27 @@ function initWebSocket() {
                         case 7: statusText = "Bất thường"; statusColor = "#ef4444"; break;
                     }
                     
-                    // THÊM MỚI: Ghi đè trạng thái hiển thị nếu có cờ Tạm dừng ảo từ Backend
                     if (info.is_paused) {
                         statusText = "Tạm dừng";
-                        statusColor = "#f59e0b"; // Vàng cam
+                        statusColor = "#f59e0b"; 
                     }
                     
                     statusBadge.textContent = statusText;
                     statusBadge.style.backgroundColor = statusColor;
                     
-                    // Logic màu sắc cho % Pin
                     battBadge.textContent = `🔋 ${info.battery}%`;
                     if (info.battery <= 20) {
-                        battBadge.style.color = "#ef4444"; // Đỏ nếu pin yếu (<= 20%)
+                        battBadge.style.color = "#ef4444";
                     } else if (info.battery <= 50) {
-                        battBadge.style.color = "#eab308"; // Vàng nếu pin trung bình (<= 50%)
+                        battBadge.style.color = "#eab308";
                     } else {
-                        battBadge.style.color = "#34d399"; // Xanh lá nếu pin khỏe
+                        battBadge.style.color = "#34d399";
                     }
                 }
             }
         }
     };
     
-    // Tự động kết nối lại nếu bị đứt mạng
     ws.onclose = () => setTimeout(initWebSocket, 2000);
 }
 
