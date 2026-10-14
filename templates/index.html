@@ -32,7 +32,7 @@
 
             <!-- THÊM Ô NHẬP NHÓM/ROBOT VÀO ĐÚNG CHỖ NÀY -->
             <div class="input-group">
-                <label>Nhóm / Robot (VD: Chung, Robot ID):</label>
+                <label>Nhóm / ID Robot (VD: Chung, Robot ID):</label>
                 <input type="text" id="inp-group" placeholder="Nhập tên Robot để gom nhóm..." value="Chung" autocomplete="off">
             </div>
 
@@ -53,10 +53,18 @@
                 </select>
             </div>
 
-            <!-- CHỈNH SỬA: Thêm id="group-ip" và mặc định ẩn -->
-            <div class="input-group" id="group-ip" style="display: none;">
-                <label>IP Trạm vật lý (Dành cho Pause/Recover):</label>
-                <input type="text" id="inp-ip" placeholder="VD: 192.168.221.253" autocomplete="off">
+            <!-- Nhóm thiết lập cho thiết bị vật lý (Chỉ hiện với Pause/Recover) -->
+            <div class="input-group" id="group-ip" style="display: none; background: rgba(56, 189, 248, 0.1); padding: 10px; border-radius: 8px; border: 1px dashed #38bdf8;">
+                <label style="color: #38bdf8; font-weight: bold; margin-bottom: 10px;">CẤU HÌNH PHẦN CỨNG VẬT LÝ</label>
+                
+                <label>IP Nút vật lý:</label>
+                <input type="text" id="inp-ip" placeholder="VD: 192.168.221.253" autocomplete="off" style="margin-bottom: 10px;">
+                
+                <label>Địa chỉ Nút nhấn vật lý (Modbus Reg):</label>
+                <input type="number" id="inp-phy-btn" placeholder="VD: 0" autocomplete="off" style="margin-bottom: 10px;">
+                
+                <label>Địa chỉ Đèn báo vật lý (Modbus Reg):</label>
+                <input type="number" id="inp-phy-lamp" placeholder="VD: 1" autocomplete="off">
             </div>
 
             <!-- Ô Nhập WF mặc định ẩn -->
@@ -88,25 +96,25 @@
     <script src="/scripts/script.js"></script>
     <script>
         function toggleInputs() {
-            const type = document.getElementById('inp-type').value;
-            const wfGroup = document.getElementById('group-wf');
-            const nodesGroup = document.getElementById('group-nodes');
-            const ipGroup = document.getElementById('group-ip');
-            
-            if (type === 'start') {
-                wfGroup.style.display = 'flex';
-                nodesGroup.style.display = 'flex';
-                ipGroup.style.display = 'none';
-            } else if (type === 'pause' || type === 'recover' || type === 'cancel') { 
-                wfGroup.style.display = 'none';
-                nodesGroup.style.display = 'none';
-                ipGroup.style.display = 'flex'; 
-            } else { 
-                wfGroup.style.display = 'none';
-                nodesGroup.style.display = 'none';
-                ipGroup.style.display = 'none';
-            }
-        }   
+    const type = document.getElementById('inp-type').value;
+    const wfGroup = document.getElementById('group-wf');
+    const nodesGroup = document.getElementById('group-nodes');
+    const ipGroup = document.getElementById('group-ip');
+    
+    if (type === 'start') {
+        wfGroup.style.display = 'flex';
+        nodesGroup.style.display = 'flex';
+        ipGroup.style.display = 'none';
+    } else if (type === 'pause' || type === 'recover') { 
+        wfGroup.style.display = 'none';
+        nodesGroup.style.display = 'none';
+        ipGroup.style.display = 'flex'; 
+    } else { 
+        wfGroup.style.display = 'none';
+        nodesGroup.style.display = 'none';
+        ipGroup.style.display = 'none';
+    }
+}
     </script>
 </body>
 </html>
