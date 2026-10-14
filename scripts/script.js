@@ -36,6 +36,8 @@ function openModal(addr = null) {
         document.getElementById('inp-group').value = st.group || "Chung"; // Thêm dòng này
         document.getElementById('inp-type').value = st.type || "khac";
         document.getElementById('inp-ip').value = st.ip || "";
+        document.getElementById('inp-phy-btn').value = st.phy_btn ?? "";
+        document.getElementById('inp-phy-lamp').value = st.phy_lamp ?? "";
         document.getElementById('inp-wf').value = st.wf || "";
         document.getElementById('inp-nodes').value = st.nodes || "";
         document.getElementById('inp-name').value = st.name;
@@ -46,10 +48,12 @@ function openModal(addr = null) {
     } else {
         editModeAddr = null;
         modalTitle.textContent = "TẠO NÚT MỚI";
-        document.getElementById('inp-group').value = "Chung"; // Thêm dòng này
-        document.getElementById('inp-ip').value = st.ip || "";
-        document.getElementById('inp-wf').value = st.wf || "";
-        document.getElementById('inp-nodes').value = st.nodes || "";
+        document.getElementById('inp-group').value = "Chung"; 
+        document.getElementById('inp-ip').value = ""; 
+        document.getElementById('inp-phy-btn').value = ""; 
+        document.getElementById('inp-phy-lamp').value = ""; 
+        document.getElementById('inp-wf').value = ""; 
+        document.getElementById('inp-nodes').value = ""; 
         document.getElementById('inp-name').value = '';
         document.getElementById('inp-btn').value = '';
         document.getElementById('inp-lamp').value = '';
@@ -68,6 +72,8 @@ async function saveStation() {
     const group = document.getElementById('inp-group').value.trim() || "Chung";
     const btnType = document.getElementById('inp-type').value;
     const ip = document.getElementById('inp-ip').value.trim();
+    const phyBtn = parseInt(document.getElementById('inp-phy-btn').value);
+    const phyLamp = parseInt(document.getElementById('inp-phy-lamp').value);
     const wfCode = document.getElementById('inp-wf').value.trim();
     const nodes = document.getElementById('inp-nodes').value.trim();
     const name = document.getElementById('inp-name').value.trim();
@@ -89,8 +95,12 @@ async function saveStation() {
     const pass = prompt("Vui lòng nhập mật khẩu quản trị để lưu thay đổi:");
     if (pass === null) return; // Nếu người dùng bấm Cancel thì hủy thao tác
 
-    // Kẹp thêm mật khẩu vào gói dữ liệu gửi lên
-    const payload = { group: group, type: btnType, ip: ip, wf: wfCode, nodes: nodes, name: name, btn_addr: btnAddr, lamp_addr: lampAddr, password: pass };
+    const payload = { 
+        group: group, type: btnType, ip: ip, wf: wfCode, nodes: nodes, name: name, 
+        btn_addr: btnAddr, lamp_addr: lampAddr, password: pass,
+        phy_btn: isNaN(phyBtn) ? null : phyBtn,
+        phy_lamp: isNaN(phyLamp) ? null : phyLamp
+    };
     
     let res;
     if (editModeAddr === null) {
