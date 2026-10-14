@@ -66,22 +66,11 @@ input:checked + .slider:before { transform: translateX(16px); }
 .robot-group {
     width: 100%;
     margin-bottom: 30px;
-    background: rgba(30, 41, 59, 0.4); /* Nền xám đen hơi trong suốt */
+    background: rgba(30, 41, 59, 0.4); 
     padding: 20px;
     border-radius: 12px;
     border: 1px solid #334155;
     box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-}
-
-.group-title {
-    color: #38bdf8; /* Xanh dương sáng */
-    font-size: 18px;
-    font-weight: 600;
-    margin-bottom: 20px;
-    padding-bottom: 10px;
-    border-bottom: 1px dashed #475569;
-    text-transform: uppercase;
-    letter-spacing: 1px;
 }
 
 .group-items-container {
@@ -90,16 +79,50 @@ input:checked + .slider:before { transform: translateX(16px); }
     gap: 20px;
 }
 
-/* GIAO DIỆN HIỂN THỊ STATUS VÀ PIN ROBOT */
+/* =========================================
+   CHỈNH LẠI HEADER TỪNG NHÓM (CÓ NÚT SỬA/XÓA)
+========================================== */
 .group-header-wrapper {
     display: flex;
     justify-content: space-between;
     align-items: center;
     margin-bottom: 20px;
-    border-bottom: 1px dashed #475569;
-    padding-bottom: 10px;
+    border-bottom: 1px dashed #334155;
+    padding-bottom: 15px;
 }
-.group-title { margin-bottom: 0; border-bottom: none; padding-bottom: 0; }
+
+/* Khu vực chứa Tên Robot + Các nút chức năng nhóm */
+.group-title-area {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.group-title {
+    color: #38bdf8;
+    font-size: 18px;
+    font-weight: 600;
+    margin: 0; 
+    padding: 0; 
+    border: none;
+    letter-spacing: 1px;
+}
+
+/* Nút MỞ POPUP thiết kế lại */
+.pop-out-btn {
+    background: #0284c7; 
+    color: white; 
+    border: none; 
+    padding: 5px 12px; 
+    border-radius: 4px; 
+    font-size: 11px; 
+    font-weight: bold; 
+    cursor: pointer;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.3); 
+    transition: 0.2s;
+}
+.pop-out-btn:hover { background: #0369a1; }
+
 .robot-badges { display: flex; gap: 10px; align-items: center; }
 .r-badge { 
     font-size: 13px; 
@@ -113,4 +136,73 @@ input:checked + .slider:before { transform: translateX(16px); }
 .batt-badge { 
     background: #1f2937; 
     border: 1px solid #374151; 
+}
+
+/* =========================================
+   GIAO DIỆN MINI WINDOW (DARK THEME GỐC)
+========================================== */
+/* =========================================
+   GIAO DIỆN MINI WINDOW (CO GIÃN ĐỘNG - RESPONSIVE)
+========================================== */
+body.mini-mode {
+    padding: 10px;
+    background: #0f1115;
+    overflow: hidden; /* Ẩn luôn thanh cuộn để popup lúc nào cũng tràn viền gọn gàng */
+}
+
+/* 1. Ẩn các thành phần rườm rà */
+body.mini-mode .top-bar,
+body.mini-mode .action-btns, 
+body.mini-mode .stats, 
+body.mini-mode .override-zone { 
+    display: none; 
+}
+
+/* 2. Ép tất cả các Card nằm trên 1 hàng ngang và không bao giờ rớt dòng */
+body.mini-mode .group-items-container {
+    display: flex;
+    justify-content: center;
+    gap: 8px; /* Giảm khoảng cách để đỡ tốn diện tích */
+    flex-wrap: nowrap; /* BẮT BUỘC: Không cho phép rớt xuống dòng */
+    width: 100%;
+}
+
+/* 3. Tự động chia đều chiều rộng của popup cho các Card */
+body.mini-mode .station-card {
+    padding: 10px;
+    min-width: 0;      /* Cho phép thẻ thu nhỏ lại hết mức có thể */
+    flex: 1;           /* Tự động chia đều chiều rộng cho 4 thẻ */
+    max-width: 160px;  /* Khi phóng to cũng không bị bành trướng quá mức */
+    margin-bottom: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+}
+
+/* 4. Font chữ Tiêu đề tự động co giãn */
+body.mini-mode .station-header-title {
+    font-size: clamp(9px, 2.5vw, 14px); /* Chữ tự thu nhỏ khi kéo hẹp cửa sổ */
+    white-space: normal;
+    text-align: center;
+    border-bottom: none;
+    padding-bottom: 8px;
+    padding-right: 0;
+    width: 100%;
+}
+
+body.mini-mode .btn-wrapper { 
+    margin-bottom: 0; 
+    width: 100%; 
+    display: flex; 
+    justify-content: center; 
+}
+
+/* 5. Phép màu ở đây: Nút tự động giữ tỷ lệ hình tròn theo bề ngang */
+body.mini-mode .illuminated-btn {
+    width: 80%;           /* Chiếm 80% bề ngang của Card */
+    max-width: 110px;     /* Giới hạn to nhất bằng kích thước nút trên trang chính */
+    height: auto;         /* Chiều cao phó mặc cho trình duyệt tự tính... */
+    aspect-ratio: 1 / 1;  /* ...dựa trên tỷ lệ 1:1 (luôn là hình vuông, kết hợp viền cong sẽ thành vòng tròn) */
+    font-size: clamp(9px, 2.5vw, 15px); /* Chữ CALL cũng co giãn theo */
 }
