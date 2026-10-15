@@ -4,7 +4,7 @@ const modal = document.getElementById('config-modal');
 const modalTitle = document.getElementById('modal-title');
 
 let stations = [];
-let editModeAddr = null; // Biến lưu trạng thái đang thêm mới hay đang sửa
+let editModeAddr = null;
 
 let pressTimers = {};
 let isLongPress = {};
@@ -44,7 +44,6 @@ function openModal(addr = null) {
         document.getElementById('inp-btn').value = st.btn_addr;
         document.getElementById('inp-lamp').value = st.lamp_addr;
         if(typeof toggleInputs === 'function') toggleInputs();
-        if(typeof toggleWfInput === 'function') toggleWfInput();
     } else {
         editModeAddr = null;
         modalTitle.textContent = "TẠO NÚT MỚI";
@@ -58,7 +57,6 @@ function openModal(addr = null) {
         document.getElementById('inp-btn').value = '';
         document.getElementById('inp-lamp').value = '';
         if(typeof toggleInputs === 'function') toggleInputs();
-        if(typeof toggleWfInput === 'function') toggleWfInput();
     }
 }
 
@@ -91,9 +89,8 @@ async function saveStation() {
     if(isBtnExists) return alert("Địa chỉ Nút này đã được sử dụng!");
     if(isLampExists) return alert("Địa chỉ Đèn này đã được sử dụng!");
 
-    // --- BƯỚC BẢO MẬT: HỎI MẬT KHẨU TRƯỚC KHI GỬI LÊN PYTHON ---
     const pass = prompt("Vui lòng nhập mật khẩu quản trị để lưu thay đổi:");
-    if (pass === null) return; // Nếu người dùng bấm Cancel thì hủy thao tác
+    if (pass === null) return; 
 
     const payload = { 
         group: group, type: btnType, ip: ip, wf: wfCode, nodes: nodes, name: name, 
@@ -102,24 +99,13 @@ async function saveStation() {
         phy_lamp: isNaN(phyLamp) ? null : phyLamp
     };
     
-    let res;
-    if (editModeAddr === null) {
-        res = await fetch('/api/config', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
-        });
-    } else {
-        res = await fetch(`/api/config/${editModeAddr}`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
-        });
-    }
+    let res = await fetch(editModeAddr === null ? '/api/config' : `/api/config/${editModeAddr}`, {
+        method: editModeAddr === null ? 'POST' : 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+    });
 
     const data = await res.json();
-    
-    // Nếu Python phát hiện sai pass, báo lỗi và giữ nguyên bảng để nhập lại
     if (data.status === "error") {
         alert(data.message);
         return; 
@@ -129,11 +115,8 @@ async function saveStation() {
     loadConfig();
 }
 
-// GỌI API XÓA
 async function deleteStation(btnAddr) {
     if(confirm("Xóa NÚT này khỏi hệ thống? Dữ liệu không thể khôi phục.")) {
-        
-        // Yêu cầu mật khẩu trước khi xóa
         const pass = prompt("Vui lòng nhập mật khẩu quản trị để XÓA:");
         if (pass === null) return;
 
@@ -148,20 +131,51 @@ async function deleteStation(btnAddr) {
     }
 }
 
-// GHI MODBUS
-function writeRegister(address, value) {
-    fetch('/api/write', { 
-        method: 'POST', 
-        headers: { 'Content-Type': 'application/json' }, 
-        body: JSON.stringify({ address: address, value: value }) 
-    });
+// GHI MODBUS VÀ LẮNG NGHE LỖI KUKA API
+async function writeRegister(address, value) {
+    try {
+        const res = await fetch('/api/write', { 
+            method: 'POST', 
+            headers: { 'Content-Type': 'application/json' }, 
+            body: JSON.stringify({ address: address, value: value }) 
+        });
+        
+        const data = await res.json();
+        
+        // Nếu nhấn nút (value > 0) và server trả về lỗi KUKA API
+        if (value > 0 && data.status === "error") {
+            showToast("LỖI ĐIỀU KHIỂN: " + data.message);
+            
+            const btn = document.getElementById(`btn-${address}`);
+            if(btn) {
+                btn.style.transform = "translateX(-5px)";
+                setTimeout(() => btn.style.transform = "translateX(5px)", 50);
+                setTimeout(() => btn.style.transform = "translateX(-5px)", 100);
+                setTimeout(() => btn.style.transform = "translateX(5px)", 150);
+                setTimeout(() => btn.style.transform = "none", 200);
+            }
+        }
+    } catch (e) {
+        if (value > 0) showToast("LỖI MẠNG: Không thể kết nối tới Server Node!");
+    }
+}
+
+function showToast(message) {
+    const toast = document.createElement("div");
+    toast.className = "toast-msg";
+    toast.innerText = message;
+    document.body.appendChild(toast);
+    
+    setTimeout(() => toast.classList.add("show"), 10);
+    setTimeout(() => {
+        toast.classList.remove("show");
+        setTimeout(() => toast.remove(), 300);
+    }, 3500);
 }
 
 // ==========================================
 // TÍNH NĂNG QUẢN LÝ THEO NHÓM (ROBOT ID)
 // ==========================================
-
-// 1. ĐỔI TÊN ROBOT ID CHO TOÀN BỘ NÚT
 async function editGroup(oldGroupName) {
     const newGroupName = prompt(`Nhập ID Robot mới để thay thế cho [${oldGroupName}]:`, oldGroupName);
     if (!newGroupName || newGroupName.trim() === "" || newGroupName === oldGroupName) return;
@@ -170,7 +184,6 @@ async function editGroup(oldGroupName) {
     if (pass === null) return;
 
     const stationsInGroup = stations.filter(s => s.group === oldGroupName);
-    
     const updatePromises = stationsInGroup.map(st => {
         const payload = { ...st, group: newGroupName.trim(), password: pass };
         return fetch(`/api/config/${st.btn_addr}`, {
@@ -181,53 +194,59 @@ async function editGroup(oldGroupName) {
     });
 
     const results = await Promise.all(updatePromises);
-    
     const errorRes = results.find(r => r.status === "error");
-    if (errorRes) {
-        alert(errorRes.message);
-    }
+    if (errorRes) alert(errorRes.message);
     
     loadConfig(); 
 }
 
-// 2. XÓA TOÀN BỘ ROBOT VÀ CÁC NÚT BÊN TRONG
 async function deleteGroup(groupName) {
-    if(!confirm(`⚠️ BẠN CÓ CHẮC CHẮN MUỐN XÓA TOÀN BỘ ROBOT [${groupName}]?\nTất cả nút Start, Pause, Cancel của xe này sẽ bị xóa. Dữ liệu không thể khôi phục.`)) {
-        return;
-    }
+    if(!confirm(`⚠️ BẠN CÓ CHẮC CHẮN MUỐN XÓA TOÀN BỘ ROBOT [${groupName}]?\nTất cả nút Start, Pause, Cancel của xe này sẽ bị xóa. Dữ liệu không thể khôi phục.`)) return;
 
     const pass = prompt(`Vui lòng nhập mật khẩu quản trị để XÓA Robot [${groupName}]:`);
     if (pass === null) return;
 
     const stationsInGroup = stations.filter(s => s.group === groupName);
-    
     const deletePromises = stationsInGroup.map(st => {
-        return fetch(`/api/config/${st.btn_addr}?password=${encodeURIComponent(pass)}`, { 
-            method: 'DELETE' 
-        }).then(res => res.json());
+        return fetch(`/api/config/${st.btn_addr}?password=${encodeURIComponent(pass)}`, { method: 'DELETE' }).then(res => res.json());
     });
 
     const results = await Promise.all(deletePromises);
-    
     const errorRes = results.find(r => r.status === "error");
-    if (errorRes) {
-        alert(errorRes.message);
-    }
+    if (errorRes) alert(errorRes.message);
     
     loadConfig();
 }
 
-// ==========================================
-// VẼ GIAO DIỆN
-// ==========================================
-
-// HÀM MỞ POPUP
+// HÀM MỞ POPUP (CÓ NHẬP SỐ HÀNG X CỘT)
 function openMiniWindow(robotId) {
-    const url = window.location.origin + window.location.pathname + '?mini=' + encodeURIComponent(robotId);
-    const windowFeatures = "width=750,height=280,menubar=no,toolbar=no,location=no,status=no,resizable=yes";
+    const grid = prompt(
+        `Nhập bố cục Hàng x Cột cho Robot [${robotId}]\nVí dụ: 2x2 (2 hàng, 2 cột), hoặc 1x4 (1 hàng, 4 cột).\n(Để trống sẽ tự động xếp 1 hàng ngang):`, 
+        "2x2" 
+    );
     
-    // Mở popup hoàn toàn mới
-    window.open(url, "_blank", windowFeatures);
+    if (grid === null) return; 
+
+    let url = window.location.origin + window.location.pathname + '?mini=' + encodeURIComponent(robotId);
+    let width = 750;
+    let height = 280;
+    
+    if (grid.trim() !== "") {
+        const parts = grid.toLowerCase().split('x');
+        if (parts.length === 2 && !isNaN(parts[0]) && !isNaN(parts[1])) {
+            const rows = parseInt(parts[0]);
+            const cols = parseInt(parts[1]);
+            
+            url += `&cols=${cols}`;
+            width = cols * 180 + 40; 
+            height = rows * 200 + 60; 
+        } else {
+            alert("Sai định dạng! Vui lòng nhập theo dạng số (VD: 2x2).");
+            return;
+        }
+    }
+    
+    window.open(url, "_blank", `width=${width},height=${height},menubar=no,toolbar=no,location=no,status=no,resizable=yes`);
 }
 
 function renderStations() {
@@ -235,10 +254,29 @@ function renderStations() {
     
     const urlParams = new URLSearchParams(window.location.search);
     const miniGroup = urlParams.get('mini');
+    const cols = urlParams.get('cols'); 
 
     if (miniGroup) {
         document.body.classList.add('mini-mode');
         document.title = "ĐK: " + miniGroup;
+        
+        if (cols && !document.getElementById('grid-style')) {
+            const style = document.createElement('style');
+            style.id = 'grid-style';
+            style.innerHTML = `
+                body.mini-mode .group-items-container {
+                    display: grid !important;
+                    grid-template-columns: repeat(${cols}, 1fr) !important;
+                    gap: 12px !important;
+                }
+                body.mini-mode .station-card {
+                    max-width: none !important;
+                    width: 100% !important;
+                    margin: 0 !important;
+                }
+            `;
+            document.head.appendChild(style);
+        }
     }
 
     const groupedStations = {};
@@ -253,7 +291,6 @@ function renderStations() {
     for (const [group, items] of Object.entries(groupsToRender)) {
         if (items.length === 0) continue;
 
-        // Html chứa các nút thao tác nhóm
         const groupActionsHtml = miniGroup ? '' : `
             <div style="display: flex; gap: 8px; align-items: center;">
                 <button class="pop-out-btn" onclick="openMiniWindow('${group}')" style="margin:left: 0;">↗ MỞ POPUP</button>
@@ -266,12 +303,11 @@ function renderStations() {
         <div class="robot-group" style="${miniGroup ? 'margin:0; border:none; background:transparent; padding:0; box-shadow:none;' : ''}">
             <div class="group-header-wrapper" style="${miniGroup ? 'justify-content: center; border-bottom: none; margin-bottom: 10px;' : ''}">
                 
-                <!-- BÊN TRÁI: Chỉ để hiển thị Tên Robot -->
                 <h2 class="group-title" style="${miniGroup ? 'font-size: 20px; color: #fff;' : ''}">${group}</h2>
                 
-                <!-- BÊN PHẢI: Chứa cụm 3 nút thao tác + Badges Trạng thái KUKA -->
                 <div style="display: flex; align-items: center; gap: 20px;">
                     ${groupActionsHtml}
+                    <!-- KHU VỰC VẼ BADGES TÌNH TRẠNG KUKA -->
                     <div class="robot-badges">
                         <span id="badge-status-${group}" class="r-badge status-badge" style="display:none;"></span>
                         <span id="badge-batt-${group}" class="r-badge batt-badge" style="display:none;"></span>
@@ -377,7 +413,7 @@ function initWebSocket() {
     ws.onmessage = (event) => {
         const data = JSON.parse(event.data);
         
-        // 1. CẬP NHẬT MODBUS (Giao diện nút nhấn & đèn báo)
+        // 1. CẬP NHẬT MODBUS
         if (data.regs) {
             const regs = data.regs; 
 
@@ -386,7 +422,6 @@ function initWebSocket() {
                 const lampVal = regs[st.lamp_addr - 1]; 
                 const lampOn = lampVal > 0;
 
-                // Cập nhật giá trị hiển thị dạng text
                 const regValEl = document.getElementById(`regVal-${st.btn_addr}`);
                 if(regValEl) regValEl.textContent = btnVal;
                 
@@ -394,9 +429,8 @@ function initWebSocket() {
                 const lampValEl = document.getElementById(`lampVal-${st.lamp_addr}`);
                 const toggleEl = document.getElementById(`toggle-${st.lamp_addr}`);
 
-                if(!btnEl) return; // Nếu nút không có trên DOM (do đang mở chế độ mini) thì bỏ qua
+                if(!btnEl) return; 
 
-                // Đổi class để thay đổi giao diện Nút/Đèn
                 if (lampOn) {
                     btnEl.className = 'illuminated-btn lamp-on';
                     if(lampValEl) {
@@ -407,6 +441,7 @@ function initWebSocket() {
                 } else {
                     btnEl.className = 'illuminated-btn lamp-off';
                     if(lampValEl) {
+                        instruction = 'OFF';
                         lampValEl.textContent = 'OFF';
                         lampValEl.style.color = '#047857';
                     }
@@ -415,7 +450,7 @@ function initWebSocket() {
             });
         }
 
-        // 2. CẬP NHẬT CHỈ SỐ KUKA (Pin và Trạng thái)
+        // 2. CẬP NHẬT CHỈ SỐ KUKA
         if (data.kuka_data) {
             for (const [robotId, info] of Object.entries(data.kuka_data)) {
                 const statusBadge = document.getElementById(`badge-status-${robotId}`);
@@ -423,12 +458,12 @@ function initWebSocket() {
                 
                 if (statusBadge && battBadge) {
                     statusBadge.style.display = 'inline-block';
-                    battBadge.style.display = 'inline-block';
                     
                     let statusText = `Mã ${info.status}`;
                     let statusColor = "#6b7280"; 
                     
                     switch (info.status) {
+                        case 0: statusText = "Mất kết nối"; statusColor = "#ef4444"; break; 
                         case 1: statusText = "Khởi hành"; statusColor = "#3b82f6"; break;
                         case 2: statusText = "Ngoại tuyến"; statusColor = "#4b5563"; break;
                         case 3: statusText = "Rảnh"; statusColor = "#0ea5e9"; break;
@@ -438,7 +473,7 @@ function initWebSocket() {
                         case 7: statusText = "Bất thường"; statusColor = "#ef4444"; break;
                     }
                     
-                    if (info.is_paused) {
+                    if (info.is_paused && info.status !== 0) {
                         statusText = "Tạm dừng";
                         statusColor = "#f59e0b"; 
                     }
@@ -446,13 +481,21 @@ function initWebSocket() {
                     statusBadge.textContent = statusText;
                     statusBadge.style.backgroundColor = statusColor;
                     
-                    battBadge.textContent = `🔋 ${info.battery}%`;
-                    if (info.battery <= 20) {
-                        battBadge.style.color = "#ef4444";
-                    } else if (info.battery <= 50) {
-                        battBadge.style.color = "#eab308";
+                    if (info.status === 0) {
+                        battBadge.style.display = 'none';
                     } else {
-                        battBadge.style.color = "#34d399";
+                        battBadge.style.display = 'inline-block';
+                        let battColor = "#34d399"; 
+                        if (info.battery <= 20) {
+                            battColor = "#ef4444"; 
+                        } else if (info.battery <= 50) {
+                            battColor = "#eab308"; 
+                        }
+
+                        const battSvg = `<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" style="vertical-align: text-bottom; margin-right: 4px;"><path d="M17 6H3c-1.1 0-2 .9-2 2v8c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2v-8c0-1.1-.9-2-2-2zm4 4v4h-2v-4h2z"/></svg>`;
+                        battBadge.innerHTML = `${battSvg}${info.battery}%`;
+                        battBadge.style.color = battColor;
+                        battBadge.style.borderColor = battColor;
                     }
                 }
             }
