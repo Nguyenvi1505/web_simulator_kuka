@@ -1,70 +1,85 @@
-[
-    {
-        "group": "1001",
-        "type": "start",
-        "ip": "",
-        "wf": "W000000069",
-        "nodes": "1",
-        "name": "Bắt đầu (Start)",
-        "btn_addr": 1,
-        "lamp_addr": 51
+{
+    "system": {
+        "kuka_base_url": "http://192.168.221.250:5000/interfaces/api/amr",
+        "kuka_token": "36b8ac34198ea45463f77f469fd9fe5d27d310ff66b84635df13dd9a1b444117",
+        "server_port": 8000,
+        "modbus_port": 502,
+        "admin_pass_hash": "d9fd4772385aa75f393cd33266d8d1306169262ff1b3d5d04305cc82b0d42aa7"
     },
-    {
-        "group": "1001",
-        "type": "pause",
-        "name": "Tạm dừng (Pause)",
-        "btn_addr": 2,
-        "lamp_addr": 52
-    },
-    {
-        "group": "1001",
-        "type": "recover",
-        "ip": "",
-        "wf": "",
-        "nodes": "",
-        "name": "Tiếp tục (Resume)",
-        "btn_addr": 3,
-        "lamp_addr": 53
-    },
-    {
-        "group": "1001",
-        "type": "khac",
-        "name": "Hủy (Cancel)",
-        "btn_addr": 4,
-        "lamp_addr": 54
-    },
-    {
-        "group": "1002",
-        "type": "start",
-        "ip": "",
-        "wf": "W000000070",
-        "nodes": "1",
-        "name": "Bắt đầu (Start)",
-        "btn_addr": 5,
-        "lamp_addr": 55
-    },
-    {
-        "group": "1002",
-        "type": "pause",
-        "name": "Tạm dừng (Pause)",
-        "btn_addr": 6,
-        "lamp_addr": 56
-    },
-    {
-        "group": "1002",
-        "type": "recover",
-        "ip": "",
-        "wf": "",
-        "nodes": "",
-        "name": "Tiếp tục (Resume)",
-        "btn_addr": 7,
-        "lamp_addr": 57
-    },
-    {
-        "group": "1002",
-        "type": "khac",
-        "name": "Hủy (Cancel)",
-        "btn_addr": 8,
-        "lamp_addr": 58
-    }
-]
+    "stations": [
+        {
+            "group": "1001",
+            "type": "start",
+            "ip": "",
+            "wf": "W000000069",
+            "nodes": "1",
+            "name": "Bắt đầu (Start)",
+            "btn_addr": 1,
+            "lamp_addr": 51
+        },
+        {
+            "group": "1001",
+            "type": "pause",
+            "name": "Tạm dừng (Pause)",
+            "btn_addr": 2,
+            "lamp_addr": 52
+        },
+        {
+            "group": "1001",
+            "type": "recover",
+            "ip": "",
+            "wf": "",
+            "nodes": "",
+            "name": "Tiếp tục (Resume)",
+            "btn_addr": 3,
+            "lamp_addr": 53
+        },
+        {
+            "group": "1001",
+            "type": "cancel",
+            "ip": "",
+            "wf": "",
+            "nodes": "",
+            "name": "Hủy (Cancel)",
+            "btn_addr": 4,
+            "lamp_addr": 54
+        },
+        {
+            "group": "1002",
+            "type": "start",
+            "ip": "",
+            "wf": "W000000070",
+            "nodes": "1",
+            "name": "Bắt đầu (Start)",
+            "btn_addr": 5,
+            "lamp_addr": 55
+        },
+        {
+            "group": "1002",
+            "type": "pause",
+            "name": "Tạm dừng (Pause)",
+            "btn_addr": 6,
+            "lamp_addr": 56
+        },
+        {
+            "group": "1002",
+            "type": "recover",
+            "ip": "",
+            "wf": "",
+            "nodes": "",
+            "name": "Tiếp tục (Resume)",
+            "btn_addr": 7,
+            "lamp_addr": 57
+        },
+        {
+            "group": "1002",
+            "type": "cancel",
+            "ip": "",
+            "wf": "",
+            "nodes": "",
+            "name": "Hủy (Cancel)",
+            "btn_addr": 8,
+            "lamp_addr": 58
+        }
+    ]
+}
