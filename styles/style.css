@@ -206,3 +206,30 @@ body.mini-mode .illuminated-btn {
     aspect-ratio: 1 / 1;  /* ...dựa trên tỷ lệ 1:1 (luôn là hình vuông, kết hợp viền cong sẽ thành vòng tròn) */
     font-size: clamp(9px, 2.5vw, 15px); /* Chữ CALL cũng co giãn theo */
 }
+
+/* =========================================
+   GIAO DIỆN THÔNG BÁO LỖI (TOAST NOTIFICATION)
+========================================== */
+.toast-msg {
+    position: fixed;
+    bottom: 25px;
+    right: 25px;
+    background: #ef4444; /* Màu đỏ báo lỗi */
+    color: white;
+    padding: 15px 25px;
+    border-radius: 8px;
+    box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+    font-size: 14px;
+    font-weight: bold;
+    z-index: 9999;
+    transform: translateY(100px);
+    opacity: 0;
+    transition: all 0.3s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+    max-width: 350px;
+    border-left: 6px solid #991b1b;
+    pointer-events: none;
+}
+.toast-msg.show {
+    transform: translateY(0);
+    opacity: 1;
+}
