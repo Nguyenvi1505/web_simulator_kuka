@@ -10,10 +10,11 @@ import hashlib
 import datetime
 import time
 import requests
+from logging.handlers import TimedRotatingFileHandler
 from contextlib import asynccontextmanager
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
 from pymodbus.datastore import (
     ModbusSequentialDataBlock,
     ModbusServerContext,
@@ -23,13 +24,12 @@ from pymodbus.server import StartAsyncTcpServer
 from pyModbusTCP.client import ModbusClient
 
 # ==========================================
-# 1. CẤU HÌNH LOG (LỌC DỮ LIỆU THÔNG MINH)
+# 1. CẤU HÌNH LOG (LỌC DỮ LIỆU & TỰ ĐỘNG XOÁ SAU 10 NGÀY)
 # ==========================================
 if not os.path.exists("logs"):
     os.makedirs("logs")
 
-current_date = datetime.datetime.now().strftime("%Y%m%d")
-log_filepath = os.path.join("logs", f"{current_date}_modbus_traffic.log")
+log_filepath = os.path.join("logs", "kuka_scada.log")
 
 class SmartDataChangeFilter(logging.Filter):
     def __init__(self):
@@ -77,9 +77,10 @@ class SmartDataChangeFilter(logging.Filter):
             return False
         return False
 
-log_formatter = logging.Formatter("%(asctime)s | [%(levelname)s] %(name)s: %(message)s")
+log_formatter = logging.Formatter("%(asctime)s | [%(levelname)s] | %(filename)s:%(lineno)d | %(name)s: %(message)s")
 
-file_handler = logging.FileHandler(log_filepath, encoding="utf-8")
+file_handler = TimedRotatingFileHandler(log_filepath, when="midnight", interval=1, backupCount=10, encoding="utf-8")
+file_handler.suffix = "%Y%m%d"
 file_handler.setFormatter(log_formatter)
 file_handler.addFilter(SmartDataChangeFilter())
 
@@ -94,6 +95,7 @@ app_logger.addHandler(console_handler)
 app_logger.propagate = False
 
 logging.getLogger("uvicorn.error").addHandler(file_handler)
+logging.getLogger("uvicorn.access").addHandler(file_handler)
 
 # ==========================================
 # 2. QUẢN LÝ CẤU HÌNH JSON (CÓ BẢO MẬT BẰNG HASH)
@@ -101,11 +103,9 @@ logging.getLogger("uvicorn.error").addHandler(file_handler)
 CONFIG_FILE = "config.json"
 
 def hash_password(password: str) -> str:
-    """Hàm băm mật khẩu bằng thuật toán SHA-256"""
     return hashlib.sha256(password.encode('utf-8')).hexdigest()
 
 DEFAULT_SYS = {
-    # Mã băm SHA-256 mặc định của chuỗi "123456"
     "admin_pass_hash": "8d969eef6ecad3c29a3a629280e686cf0c3f5d5a86aff3ca12020c923adc6c92",
     "kuka_base_url": "http://192.168.221.250:5000/interfaces/api/amr",
     "kuka_token": "36b8ac34198ea45463f77f469fd9fe5d27d310ff66b84635df13dd9a1b444117",
@@ -134,7 +134,7 @@ def load_config():
                     
                 return data
         except Exception as e:
-            app_logger.error(f"Lỗi đọc config.json: {e}")
+            app_logger.error(f"Lỗi đọc config.json: {e}", exc_info=True)
             
     return {"system": DEFAULT_SYS, "stations": []}
 
@@ -176,7 +176,7 @@ def get_robot_info(robot_id):
                     "battery": data[0].get("batteryLevel", 0.0)
                 }
     except Exception as e:
-        app_logger.error(f"API Error (Get Info - Xe {robot_id}): {e}")
+        app_logger.error(f"API Error (Get Info - Xe {robot_id}): {e}", exc_info=True)
     return None
 
 def control_kuka_robot(action, robot_id):
@@ -295,6 +295,20 @@ async def kuka_master_loop():
                                 set_lamp_state(st, 1)
                             else:
                                 set_lamp_state(st, 0)
+                                
+                else:
+                    # BẮT BUỘC BÁO TRẠNG THÁI OFFLINE (Mất kết nối) VỀ WEB
+                    robot_info_cache[rid] = {
+                        "status": 0, 
+                        "occupyStatus": 0, 
+                        "nodeCode": "", 
+                        "battery": 0, 
+                        "is_paused": False
+                    }
+                    # ĐẢM BẢO TẮT TOÀN BỘ ĐÈN CỦA XE KHI MẤT KẾT NỐI
+                    offline_stations = [s for s in stations if s.get("group") == rid]
+                    for st in offline_stations:
+                        set_lamp_state(st, 0)
 
             if robot_info_cache:
                 msg = {"kuka_data": robot_info_cache}
@@ -303,7 +317,7 @@ async def kuka_master_loop():
                     except Exception: active_websockets.discard(ws)
                     
         except Exception as e:
-            app_logger.error(f"Master loop crashed: {e}")
+            app_logger.error(f"Master loop crashed: {e}", exc_info=True)
             
         await asyncio.sleep(2.0)
 
@@ -328,7 +342,7 @@ def set_lamp_state(station, state):
             client = get_physical_client(ip)
             client.write_single_register(phy_lamp, state)
         except Exception as e:
-            app_logger.error(f"Lỗi điều khiển đèn vật lý {ip}: {e}")
+            app_logger.error(f"Lỗi điều khiển đèn vật lý {ip}: {e}", exc_info=True)
 
 async def scan_single_node(st):
     ip = st.get("ip")
@@ -369,7 +383,7 @@ async def physical_button_scanner():
                 await asyncio.gather(*tasks)
                 
         except Exception as e:
-            app_logger.error(f"Lỗi trong vòng lặp scanner: {e}")
+            app_logger.error(f"Lỗi trong vòng lặp scanner: {e}", exc_info=True)
             
         await asyncio.sleep(0.3)
 
@@ -434,16 +448,17 @@ async def index():
     return FileResponse(get_resource_path("templates/index.html"))
 
 # ==========================================
-# 6. API QUẢN LÝ CẤU HÌNH (CÓ PASS BẢO MẬT)
+# 6. API QUẢN LÝ CẤU HÌNH (CÓ PASS BẢO MẬT & TRUY VẾT IP)
 # ==========================================
 @app.get("/api/config")
 async def get_config():
     return load_config().get("stations", [])
 
 @app.post("/api/config")
-async def add_config(payload: dict):
+async def add_config(payload: dict, request: Request):
     sys_cfg = get_sys_config()
     input_pass = payload.pop("password", "")
+    client_ip = request.client.host if request.client else "Unknown"
     
     if hash_password(input_pass) != sys_cfg.get("admin_pass_hash"): 
         return {"status": "error", "message": "Sai mật khẩu! Từ chối truy cập."}
@@ -451,13 +466,14 @@ async def add_config(payload: dict):
     cfg = load_config()
     cfg.setdefault("stations", []).append(payload)
     save_config(cfg)
-    app_logger.info(f"Đã tạo NÚT mới: {payload['name']}")
+    app_logger.info(f"[IP: {client_ip}] Đã TẠO NÚT MỚI: {payload['name']}")
     return {"status": "success"}
 
 @app.put("/api/config/{old_addr}")
-async def edit_config(old_addr: int, payload: dict):
+async def edit_config(old_addr: int, payload: dict, request: Request):
     sys_cfg = get_sys_config()
     input_pass = payload.pop("password", "")
+    client_ip = request.client.host if request.client else "Unknown"
     
     if hash_password(input_pass) != sys_cfg.get("admin_pass_hash"): 
         return {"status": "error", "message": "Sai mật khẩu! Từ chối truy cập."}
@@ -471,12 +487,13 @@ async def edit_config(old_addr: int, payload: dict):
             
     cfg["stations"] = stations
     save_config(cfg)
-    app_logger.info(f"Đã sửa NÚT (Địa chỉ cũ: {old_addr}) -> {payload['name']}")
+    app_logger.info(f"[IP: {client_ip}] Đã SỬA NÚT (Địa chỉ cũ: {old_addr}) -> {payload['name']}")
     return {"status": "success"}
 
 @app.delete("/api/config/{btn_addr}")
-async def delete_config(btn_addr: int, password: str = ""):
+async def delete_config(btn_addr: int, request: Request, password: str = ""):
     sys_cfg = get_sys_config()
+    client_ip = request.client.host if request.client else "Unknown"
     
     if hash_password(password) != sys_cfg.get("admin_pass_hash"): 
         return {"status": "error", "message": "Sai mật khẩu! Từ chối xóa NÚT."}
@@ -484,21 +501,22 @@ async def delete_config(btn_addr: int, password: str = ""):
     cfg = load_config()
     cfg["stations"] = [c for c in cfg.get("stations", []) if c["btn_addr"] != btn_addr]
     save_config(cfg)
-    app_logger.info(f"Đã xóa cấu hình NÚT có địa chỉ Nút: {btn_addr}")
+    app_logger.info(f"[IP: {client_ip}] Đã XÓA CẤU HÌNH NÚT có địa chỉ Nút: {btn_addr}")
     return {"status": "success"}
 
 # ==========================================
-# 7. API TRUNG TÂM & CHUẨN HÓA LỆNH KUKA
+# 7. API TRUNG TÂM & CHUẨN HÓA LỆNH KUKA (CÓ TRUY VẾT IP)
 # ==========================================
 @app.post("/api/write")
-async def write_register(payload: dict):
+async def write_register(payload: dict, request: Request):
     try:
+        client_ip = request.client.host if request.client else "Unknown"
         addr = int(payload.get("address", 1)) 
         val = int(payload.get("value", 0))
         
         if 1 <= addr <= 100:
             context[0].setValues(3, addr, [val]) 
-            app_logger.info(f"Ra lệnh GHI -> Địa chỉ {addr}: Giá trị {val}")
+            app_logger.info(f"[IP: {client_ip}] Ra lệnh GHI Modbus -> Địa chỉ {addr}: Giá trị {val}")
 
             stations = load_config().get("stations", [])
 
@@ -520,13 +538,15 @@ async def write_register(payload: dict):
                     
                     cached_info = robot_info_cache.get(robot_id)
                     if not cached_info:
-                        app_logger.warning(f"TỪ CHỐI LỆNH: Mất kết nối tới Robot {robot_id}")
-                        return {"status": "error"}
+                        msg = f"Mất kết nối API Kuka với Robot {robot_id}."
+                        app_logger.warning(f"[IP: {client_ip}] TỪ CHỐI LỆNH: {msg}")
+                        return {"status": "error", "message": msg}
                         
                     status = cached_info.get("status")
                     occupy = cached_info.get("occupyStatus")
                     current_node = cached_info.get("nodeCode", "")
                     
+                    # --- 1. LOGIC NÚT START ---
                     if btn_type == "start":
                         allowed_nodes_str = station.get("nodes", "")
                         allowed_nodes = [n.strip() for n in allowed_nodes_str.split(",") if n.strip()]
@@ -534,29 +554,37 @@ async def write_register(payload: dict):
                         
                         if status == 3 and occupy == 0 and is_at_valid_node:
                             wf_code = station.get("wf")
-                            app_logger.info(f"ACTION TRIGGERED: START Workflow '{wf_code}' cho Robot {robot_id}")
+                            app_logger.info(f"[IP: {client_ip}] ACTION TRIGGERED: START Workflow '{wf_code}' cho Robot {robot_id}")
                             is_success, msg, mis_code = await asyncio.to_thread(dispatch_workflow_mission, wf_code, robot_id)
                             
                             if is_success:
-                                app_logger.info(f"SUCCESS: Đã Start Robot {robot_id}.")
+                                app_logger.info(f"[KUKA API] SUCCESS: Đã Start Robot {robot_id}.")
                                 robot_mission_cache[robot_id] = mis_code
                                 cached_info["status"] = 4 
                                 cached_info["occupyStatus"] = 1
                                 set_lamp_state(station, 1)
                                 robot_status_flags[robot_id] = True 
                             else:
-                                app_logger.warning(f"FAILED: Lỗi Start Robot {robot_id}. Lý do: {msg}")
+                                err = f"KUKA API báo lỗi: {msg}"
+                                app_logger.warning(f"[IP: {client_ip}] FAILED (KUKA): {err}")
+                                return {"status": "error", "message": err}
                         else:
-                            app_logger.warning(f"TỪ CHỐI LỆNH START: Robot {robot_id} không sẵn sàng hoặc sai vị trí.")
+                            if not is_at_valid_node:
+                                err = f"Robot đang đứng sai vị trí. Yêu cầu có mặt tại Node: {station.get('nodes')}."
+                            else:
+                                err = f"Robot không rảnh. (Status: {status})"
+                            app_logger.warning(f"[IP: {client_ip}] TỪ CHỐI LỆNH START: {err}")
+                            return {"status": "error", "message": err}
                             
+                    # --- 2. LOGIC NÚT CANCEL ---
                     elif btn_type == "cancel":
                         mis_code = robot_mission_cache.get(robot_id)
                         if mis_code and (status == 4 or occupy == 1):
-                            app_logger.info(f"ACTION TRIGGERED: CANCEL Mission '{mis_code}' cho Robot {robot_id}")
+                            app_logger.info(f"[IP: {client_ip}] ACTION TRIGGERED: CANCEL Mission '{mis_code}' cho Robot {robot_id}")
                             is_success, msg = await asyncio.to_thread(cancel_workflow_mission, mis_code)
                             
                             if is_success:
-                                app_logger.info(f"SUCCESS: Đã HỦY nhiệm vụ của Robot {robot_id}.")
+                                app_logger.info(f"[KUKA API] SUCCESS: Đã HỦY nhiệm vụ của Robot {robot_id}.")
                                 robot_mission_cache.pop(robot_id, None) 
                                 cancel_lamp_hold_until[robot_id] = time.time() + 3.0
                                 set_lamp_state(station, 1) 
@@ -571,14 +599,19 @@ async def write_register(payload: dict):
                                         try: await ws.send_json(ws_msg)
                                         except Exception: active_websockets.discard(ws)
                             else:
-                                app_logger.warning(f"FAILED: Lỗi Cancel Robot {robot_id}. Lý do: {msg}")
+                                err = f"KUKA API báo lỗi: {msg}"
+                                app_logger.warning(f"[IP: {client_ip}] FAILED (KUKA): {err}")
+                                return {"status": "error", "message": err}
                         else:
-                            app_logger.warning(f"TỪ CHỐI LỆNH HỦY: Robot {robot_id} không bận hoặc không có Mission được lưu.")
+                            err = "Robot hiện không có Mission nào để hủy!"
+                            app_logger.warning(f"[IP: {client_ip}] TỪ CHỐI LỆNH HỦY: {err}")
+                            return {"status": "error", "message": err}
                             
+                    # --- 3. LOGIC NÚT PAUSE / RECOVER ---
                     else:
                         action = "PAUSE" if btn_type == "pause" else "RECOVER"
                         if robot_status_flags.get(robot_id, False):
-                            app_logger.info(f"ACTION TRIGGERED: {action} cho Robot {robot_id}")
+                            app_logger.info(f"[IP: {client_ip}] ACTION TRIGGERED: {action} cho Robot {robot_id}")
                             
                             if action == "RECOVER":
                                 set_lamp_state(station, 1)
@@ -587,18 +620,13 @@ async def write_register(payload: dict):
                             
                             if is_success:
                                 if action == "PAUSE":
-                                    app_logger.info(f"SUCCESS: Đã Pause Robot {robot_id}.")
                                     set_lamp_state(station, 1)
                                     robot_paused_state[robot_id] = True 
                                     cached_info["is_paused"] = True
-                                        
                                 elif action == "RECOVER":
-                                    app_logger.info(f"SUCCESS: Đã Recover Robot {robot_id}.")
                                     set_lamp_state(station, 0) 
-                                    
                                     pause_st = next((s for s in stations if s.get("group") == robot_id and s.get("type") == "pause"), None)
                                     if pause_st: set_lamp_state(pause_st, 0)
-                                    
                                     robot_paused_state[robot_id] = False 
                                     cached_info["is_paused"] = False
                                         
@@ -608,16 +636,20 @@ async def write_register(payload: dict):
                                         try: await ws.send_json(ws_msg)
                                         except Exception: active_websockets.discard(ws)
                             else:
-                                app_logger.warning(f"FAILED: Lỗi {action} Robot {robot_id}. Lý do: {msg}")
+                                err = f"KUKA API báo lỗi: {msg}"
+                                app_logger.warning(f"[IP: {client_ip}] FAILED (KUKA): {err}")
                                 if action == "RECOVER": set_lamp_state(station, 0)
+                                return {"status": "error", "message": err}
                         else:
-                            app_logger.warning(f"BỎ QUA LỆNH: Nút {action} cho Robot {robot_id} bị vô hiệu do trạng thái khác 4.")
+                            err = f"Không thể {action}, Robot không trong trạng thái 'Đang chạy' (Status 4)."
+                            app_logger.warning(f"[IP: {client_ip}] BỎ QUA LỆNH: {err}")
+                            return {"status": "error", "message": err}
 
         return {"status": "success"}
     except Exception as e:
-        app_logger.error(f"Lỗi ghi API: {e}")
-        return {"status": "error"}
-    
+        app_logger.error(f"Lỗi ghi API: {e}", exc_info=True)
+        return {"status": "error", "message": "Lỗi nội bộ Server Node!"}
+     
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
@@ -651,4 +683,4 @@ if __name__ == "__main__":
     app_logger.info(f" [WEB UI - SCADA] Truy cập từ máy khác: http://{local_ip}:{server_port}")
     app_logger.info("=================================================================")
     
-    uvicorn.run(app, host="0.0.0.0", port=server_port, access_log=False)
+    uvicorn.run(app, host="0.0.0.0", port=server_port, access_log=True)
